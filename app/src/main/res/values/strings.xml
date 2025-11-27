@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ComPow</string>
+
+    <!-- Welcome Screen -->
+    <string name="welcome_title">ComPow Safety App</string>
+    <string name="sign_up_prompt">Sign up for free</string>
+    <string name="or_text">or</string>
+    <string name="have_account">Have an account</string>
+    <string name="sign_up_button">Sign up</string>
+    <string name="login_button">Login</string>
+
+    <!-- Signup Screen -->
+    <string name="full_name_label">Full Name</string>
+    <string name="phone_number_label">Phone number</string>
+    <string name="year_of_study_label">Year of Study</string>
+    <string name="course_of_study_label">Course of study</string>
+    <string name="email_label">Email</string>
+    <string name="password_label">Password</string>
+    <string name="input_placeholder">type input</string>
+
+    <!-- Login Screen -->
+    <string name="enter_email_label">Enter Email</string>
+    <string name="password_field">Password</string>
+
+    <!-- Home Screen -->
+    <string name="circle_label">Circle</string>
+    <string name="group_label">Group</string>
+    <string name="community_label">Community</string>
+    <string name="stop_alarm_button">Stop Alarm</string>
+    <string name="call_button">Call</string>
+    <string name="alarm_active">ALARM ACTIVE</string>
+    <string name="emergency_contacts_notified">Emergency contacts notified</string>
+    <string name="showing_nearby">Showing nearby facilities</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="add_friends_group">Add friends or group</string>
+    <string name="profile_notification">Profile in notification</string>
+    <string name="setup_message">Setup a pop message/sms</string>
+    <string name="message_hint">Enter your emergency message\n(Default message begins with your name)</string>
+    <string name="save_message">Save Message</string>
+
+    <!-- Destination Screen -->
+    <string name="emergency_contacts_title">Emergency Contacts</string>
+    <string name="no_contacts_added">No contacts added yet</string>
+    <string name="add_contacts_hint">Add contacts from Settings</string>
+    <string name="remove_contact">Remove Contact</string>
+    <string name="remove_contact_confirm">Are you sure you want to remove %s from your emergency contacts?</string>
+    <string name="remove_button">Remove</string>
+    <string name="cancel_button">Cancel</string>
+
+    <!-- Menu Items -->
+    <string name="menu_home">Home</string>
+    <string name="menu_settings">Settings</string>
+    <string name="menu_contact">Contact</string>
+
+    <!-- Emergency Messages -->
+    <string name="emergency_default">EMERGENCY! I need help immediately!</string>
+    <string name="out_of_danger">I am safe now. Thank you for your concern.</string>
+    <string name="location_unavailable">Location unavailable</string>
+
+    <!-- Permissions -->
+    <string name="permission_location">Location permission is required to share your location during emergencies</string>
+    <string name="permission_sms">SMS permission is required to send emergency messages</string>
+    <string name="permission_contacts">Contacts permission is required to select emergency contacts</string>
+    <string name="permission_phone">Phone permission is required to make emergency calls</string>
+    <string name="permission_notification">Notification permission is required for emergency alerts</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Emergency Alerts</string>
+    <string name="notification_channel_description">Emergency alert notifications</string>
+    <string name="notification_alarm_active_title">Emergency Alarm Active</string>
+    <string name="notification_alarm_active_text">Your emergency contacts have been notified</string>
+    <string name="notification_alert_sent_title">Emergency Alert Sent</string>
+    <string name="notification_alert_sent_text">Your contacts have been notified</string>
+
+    <!-- Call Warning -->
+    <string name="call_warning_title">Warning</string>
+    <string name="call_warning_message">Calling the victim during an emergency may put them at risk. Are you sure you want to proceed?</string>
+    <string name="call_anyway">Call Anyway</string>
+
+    <!-- Errors -->
+    <string name="error_empty_field">This field cannot be empty</string>
+    <string name="error_invalid_phone">Please enter a valid Kenyan phone number (+254)</string>
+    <string name="error_invalid_email">Please enter a valid email address</string>
+    <string name="error_password_short">Password must be at least 6 characters</string>
+    <string name="error_login_failed">Login failed. Please check your credentials</string>
+    <string name="error_signup_failed">Sign up failed. Please try again</string>
+    <string name="error_sms_failed">Failed to send SMS. Please check permissions</string>
+    <string name="error_location_failed">Failed to get location. Please check permissions</string>
+
+    <!-- Success Messages -->
+    <string name="success_message_saved">Message saved successfully</string>
+    <string name="success_contact_added">Contact added successfully</string>
+    <string name="success_contact_removed">Contact removed successfully</string>
+    <string name="success_signup">Account created successfully</string>
+    <string name="success_login">Login successful</string>
+
+    <!-- Content Descriptions -->
+    <string name="cd_menu">Menu</string>
+    <string name="cd_profile">Profile picture</string>
+    <string name="cd_add_contact">Add contact</string>
+    <string name="cd_remove_contact">Remove contact</string>
+    <string name="cd_phone_icon">Phone</string>
+    <string name="cd_location_icon">Location</string>
+    <string name="cd_person_icon">Person</string>
+    <string name="cd_group_icon">Group</string>
+    <string name="cd_community_icon">Community</string>
+
+    <string name="accessibility_service_description">
+    ComPow needs this permission to detect volume button presses when the app is in the background.
+    This allows you to trigger an emergency alarm by double-pressing either volume button, even when your screen is off.
+    ComPow does not collect or monitor any other information from your device.
+    </string>
+</resources>

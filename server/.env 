@@ -1,0 +1,8 @@
+# Server Configuration
+PORT=3000
+NODE_ENV=production
+
+# CORS - Allow your Android app to connect
+# For development, i use  local IP
+# For production, i will use my deployed server URL
+ALLOWED_ORIGINS=http://localhost:3000,http://192.168.1.100:3000
