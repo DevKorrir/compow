@@ -4,12 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,7 +20,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -32,15 +30,20 @@ import androidx.navigation.NavController
 import com.example.compow.AlarmService
 import com.example.compow.ComPowApplication
 import com.example.compow.data.AlertLogEntity
+import com.example.compow.data.NearbyPlace
+import com.example.compow.utils.LocationHelper
+import com.example.compow.utils.POICacheManager
+import com.example.compow.utils.PlacesHelper
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,45 +53,80 @@ fun HomePage(navController: NavController) {
     val database = (context.applicationContext as ComPowApplication).database
     val alertLogDao = database.alertLogDao()
 
+    val poiCacheManager = remember { POICacheManager(context) }
+    val placesHelper = remember { PlacesHelper(context) }
+
     var showMenu by remember { mutableStateOf(false) }
     var showAlertHistory by remember { mutableStateOf(false) }
     var alarmActive by remember { mutableStateOf(false) }
 
-    // Get settings from SharedPreferences
+    // Settings
     val prefs = context.getSharedPreferences("compow_prefs", Context.MODE_PRIVATE)
     val circleEnabled = prefs.getBoolean("circle_enabled", true)
     val groupEnabled = prefs.getBoolean("group_enabled", true)
     val communityEnabled = prefs.getBoolean("community_enabled", false)
 
-    // Alert history - USES: getRecentAlerts()
+    // Alert history
     var recentAlerts by remember { mutableStateOf<List<AlertLogEntity>>(emptyList()) }
     var activeAlert by remember { mutableStateOf<AlertLogEntity?>(null) }
     var alertCount by remember { mutableIntStateOf(0) }
     var activeAlertCount by remember { mutableIntStateOf(0) }
 
-    // Load alert data
+    // Location and nearby places
+    val locationHelper = remember { LocationHelper(context) }
+    var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    var nearbyHospitals by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
+    var nearbyPoliceStations by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    var locationStatus by remember { mutableStateOf("Getting location...") }
+
+    // Load initial data
     LaunchedEffect(Unit) {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                // USES: getActiveAlert()
-                activeAlert = alertLogDao.getActiveAlert()
+        scope.launch(Dispatchers.IO) {
+            activeAlert = alertLogDao.getActiveAlert()
+            recentAlerts = alertLogDao.getRecentAlerts(10)
+            alertCount = alertLogDao.getAlertLogCount()
+            activeAlertCount = alertLogDao.getActiveAlertCount()
 
-                // USES: getRecentAlerts()
-                recentAlerts = alertLogDao.getRecentAlerts(10)
+            val location = locationHelper.getLocationWithFallback()
+            if (location != null) {
+                userLocation = LatLng(location.latitude, location.longitude)
+                withContext(Dispatchers.Main) {
+                    locationStatus = if (locationHelper.isLocationAccurate(location)) {
+                        "Location accurate (${location.accuracy.toInt()}m)"
+                    } else {
+                        "Low accuracy (${location.accuracy.toInt()}m)"
+                    }
+                }
 
-                // USES: getAlertLogCount()
-                alertCount = alertLogDao.getAlertLogCount()
-
-                // USES: getActiveAlertCount()
-                activeAlertCount = alertLogDao.getActiveAlertCount()
+                // Cache-first strategy for nearby places
+                withContext(Dispatchers.Main) { isSearching = true }
+                val cachedResults = poiCacheManager.getCachedResults(location.latitude, location.longitude)
+                if (cachedResults != null) {
+                    nearbyHospitals = cachedResults.hospitals
+                    nearbyPoliceStations = cachedResults.policeStations
+                } else {
+                    userLocation?.let {
+                        val (hospitals, police) = placesHelper.findNearbyPlaces(it)
+                        nearbyHospitals = hospitals
+                        nearbyPoliceStations = police
+                        poiCacheManager.cacheResults(location.latitude, location.longitude, hospitals, police)
+                    }
+                }
+                withContext(Dispatchers.Main) { isSearching = false }
+            } else {
+                val (defaultLat, defaultLng) = LocationHelper.getDefaultLocation()
+                userLocation = LatLng(defaultLat, defaultLng)
+                withContext(Dispatchers.Main) {
+                    locationStatus = "Using default location"
+                }
             }
         }
     }
 
-    // Check if there's an active alarm
     alarmActive = activeAlert != null && !activeAlert!!.isResolved
 
-    // Permission launcher for calling
+    // Permission launcher
     val callPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -106,7 +144,7 @@ fun HomePage(navController: NavController) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Top Section with Icons and Menu
+            // Top Section
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -114,31 +152,15 @@ fun HomePage(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Contact Type Indicators
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FlickeringContactIcon(
-                        icon = Icons.Default.Person,
-                        label = "Circle",
-                        enabled = circleEnabled
-                    )
-
-                    FlickeringContactIcon(
-                        icon = Icons.Default.Group,
-                        label = "Group",
-                        enabled = groupEnabled
-                    )
-
-                    FlickeringContactIcon(
-                        icon = Icons.Default.Groups,
-                        label = "Community",
-                        enabled = communityEnabled
-                    )
+                    FlickeringContactIcon(Icons.Default.Person, "Circle", circleEnabled)
+                    FlickeringContactIcon(Icons.Default.Group, "Group", groupEnabled)
+                    FlickeringContactIcon(Icons.Default.Groups, "Community", communityEnabled)
                 }
 
-                // Menu Button
                 Box {
                     IconButton(onClick = { showMenu = !showMenu }) {
                         Badge(
@@ -238,11 +260,19 @@ fun HomePage(navController: NavController) {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Google Maps Section
-            MapSection(modifier = Modifier
-                .fillMaxWidth()
-                .height(if (alarmActive) 320.dp else 380.dp)
-                .padding(horizontal = 16.dp))
+            // Map Section (shows nearby places on victim's device only)
+            MapSection(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (alarmActive) 320.dp else 380.dp)
+                    .padding(horizontal = 16.dp),
+                userLocation = userLocation,
+                hospitals = nearbyHospitals,
+                policeStations = nearbyPoliceStations,
+                isSearching = isSearching,
+                locationStatus = locationStatus,
+                locationHelper = locationHelper
+            )
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -254,13 +284,10 @@ fun HomePage(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Stop Alarm Button
                 Button(
                     onClick = {
                         alarmActive = false
                         AlarmService.stopAlarm(context)
-
-                        // Reload alert status
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 activeAlert = alertLogDao.getActiveAlert()
@@ -288,14 +315,10 @@ fun HomePage(navController: NavController) {
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                // Call Button
                 FloatingActionButton(
                     onClick = {
                         when (PackageManager.PERMISSION_GRANTED) {
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CALL_PHONE
-                            ) -> {
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) -> {
                                 val intent = Intent(Intent.ACTION_DIAL)
                                 context.startActivity(intent)
                             }
@@ -321,8 +344,8 @@ fun HomePage(navController: NavController) {
         }
     }
 
-    // Alert History Dialog - USES: getRecentAlerts()
-    val onDismiss = { showAlertHistory = false }
+    // Alert History Dialog
+    val onDismiss={ showAlertHistory = false }
     if (showAlertHistory) {
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -355,18 +378,14 @@ fun HomePage(navController: NavController) {
                                     .padding(32.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    "No alerts yet",
-                                    color = Color.Gray,
-                                    fontSize = 14.sp
-                                )
+                                Text("No alerts yet", color = Color.Gray, fontSize = 14.sp)
                             }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = { onDismiss() }) {
                     Text("Close")
                 }
             }
@@ -377,7 +396,6 @@ fun HomePage(navController: NavController) {
 @Composable
 fun AlertHistoryItem(alert: AlertLogEntity) {
     val dateFormat = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -402,11 +420,7 @@ fun AlertHistoryItem(alert: AlertLogEntity) {
                         tint = if (alert.isResolved) Color(0xFF4CAF50) else Color.Red,
                         modifier = Modifier.size(20.dp)
                     )
-                    Text(
-                        alert.alertType.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
+                    Text(alert.alertType.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 Text(
                     dateFormat.format(Date(alert.timestamp)),
@@ -414,13 +428,7 @@ fun AlertHistoryItem(alert: AlertLogEntity) {
                     color = Color.Gray
                 )
             }
-
-            Text(
-                "${alert.contactsNotified} contacts notified",
-                fontSize = 12.sp,
-                color = Color.Gray
-            )
-
+            Text("${alert.contactsNotified} contacts notified", fontSize = 12.sp, color = Color.Gray)
             if (alert.isResolved && alert.resolvedAt != null) {
                 Text(
                     "Resolved at ${dateFormat.format(Date(alert.resolvedAt))}",
@@ -465,27 +473,33 @@ fun FlickeringContactIcon(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
+            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(28.dp))
         }
-        Text(
-            label,
-            fontSize = 11.sp,
-            color = Color.Black,
-            fontWeight = FontWeight.Medium
-        )
+        Text(label, fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-fun MapSection(modifier: Modifier = Modifier) {
+fun MapSection(
+    modifier: Modifier = Modifier,
+    userLocation: LatLng?,
+    hospitals: List<NearbyPlace>,
+    policeStations: List<NearbyPlace>,
+    isSearching: Boolean,
+    locationStatus: String,
+    locationHelper: LocationHelper
+) {
     val defaultLocation = LatLng(-0.0469, 37.6494)
+    val mapCenter = userLocation ?: defaultLocation
+
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(defaultLocation, 14f)
+        position = CameraPosition.fromLatLngZoom(mapCenter, 13f)
+    }
+
+    LaunchedEffect(userLocation) {
+        userLocation?.let {
+            cameraPositionState.animate(update = CameraUpdateFactory.newLatLngZoom(it, 13f), durationMs = 1000)
+        }
     }
 
     Card(
@@ -500,28 +514,54 @@ fun MapSection(modifier: Modifier = Modifier) {
                 properties = MapProperties(isMyLocationEnabled = false),
                 uiSettings = MapUiSettings(
                     zoomControlsEnabled = true,
-                    myLocationButtonEnabled = true
+                    myLocationButtonEnabled = false
                 )
             ) {
+                if (userLocation != null) {
+                    Marker(
+                        state = rememberMarkerState(position = userLocation),
+                        title = "Your Location",
+                        snippet = locationHelper.formatLocation(Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude}),
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                    )
+                }
 
-                Marker(
-                    state = rememberMarkerState(position = defaultLocation),
-                    title = "Your Location",
-                    snippet = "You are here"
-                )
-                Marker(
-                    state = rememberMarkerState(position = LatLng(-0.0450, 37.6500)),
-                    title = "Meru Hospital",
-                    snippet = "2.1 km away"
-                )
-                Marker(
-                    state = rememberMarkerState(position = LatLng(-0.0480, 37.6510)),
-                    title = "Police Station",
-                    snippet = "1.5 km away"
-                )
+                hospitals.forEach { hospital ->
+                    Marker(
+                        state = rememberMarkerState(position = LatLng(hospital.latitude, hospital.longitude)),
+                        title = hospital.name,
+                        snippet = "${hospital.address}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                    )
+                }
+
+                policeStations.forEach { station ->
+                    Marker(
+                        state = rememberMarkerState(position = LatLng(station.latitude, station.longitude)),
+                        title = station.name,
+                        snippet = "${station.address}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
+                    )
+                }
             }
 
-            // Overlay UI outside GoogleMap
+            if (isSearching) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Text("Finding nearby help...", fontSize = 12.sp)
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -529,26 +569,59 @@ fun MapSection(modifier: Modifier = Modifier) {
             ) {
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = Color.White.copy(alpha = 0.9f)
+                        containerColor = Color.White.copy(alpha = 0.95f)
                     ),
                     elevation = CardDefaults.cardElevation(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            Icons.Default.LocationOn,
-                            contentDescription = null,
-                            tint = Color(0xFF2962FF),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Nearby facilities",
-                            fontSize = 12.sp,
-                            color = Color.Black
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color(0xFF2962FF),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Emergency Facilities",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(locationStatus, fontSize = 10.sp, color = Color.Gray)
+
+                        if (!isSearching) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color(0xFF0099FF), CircleShape)
+                                    )
+                                    Text("🏥 ${hospitals.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color(0xFF00FF00), CircleShape)
+                                    )
+                                    Text("🚔 ${policeStations.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
                     }
                 }
             }

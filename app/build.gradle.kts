@@ -88,6 +88,8 @@ dependencies {
     implementation(libs.maps.compose)
     implementation(libs.play.services.maps)
     implementation(libs.play.services.location)
+    // Google Places API
+    implementation(libs.google.places)
 
     // Room Database
     implementation(libs.androidx.room.runtime)

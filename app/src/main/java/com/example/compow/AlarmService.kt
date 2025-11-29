@@ -56,10 +56,8 @@ class AlarmService : Service() {
     override fun onCreate() {
         super.onCreate()
         locationHelper = LocationHelper(this)
-        // FIX 1: Call getInstance() without any arguments.
         socketManager = SocketIOManager.getInstance()
 
-        // Get database instance through Application class
         val database = (application as ComPowApplication).database
         contactDao = database.contactDao()
         userDao = database.userDao()
@@ -67,13 +65,11 @@ class AlarmService : Service() {
 
         createNotificationChannel()
 
-        // Ensure Socket.IO is connected
-        // FIX 2: Access 'isConnected' as a property, without parentheses.
-        if (!socketManager.isConnected) {
+        // ✅ FIX: Access StateFlow value with .value
+        if (!socketManager.isConnected.value) {
             socketManager.connect()
         }
     }
-
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -90,8 +86,12 @@ class AlarmService : Service() {
                     stopAlarm()
                 }
 
-                // FIX: Use the new constant to remove the notification.
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
 
                 try {
                     NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID + 1)
@@ -208,8 +208,8 @@ class AlarmService : Service() {
 
         // 7. Send via Socket.IO first (primary method)
         var socketSuccess = false
-        if (socketManager.isConnected) {
-            // FIX 2: Remove the unnecessary withContext(Dispatchers.IO) block
+        // ✅ FIX: Access StateFlow value with .value
+        if (socketManager.isConnected.value) {
             socketManager.sendEmergencyAlert(
                 fromUserId = userId,
                 fromUserName = userName,
@@ -252,12 +252,9 @@ class AlarmService : Service() {
 
         // 10. Save alert ID
         prefs.edit {
-            // FIX: Use the 'alertId' variable to save the ID of the current active alarm.
             putLong("current_alert_id", alertId)
-            // FIX: Set the flag to true because the alarm is now active.
             putBoolean("alarm_was_active", true)
         }
-
 
         // 11. Show local notification
         val method = if (socketSuccess) "Socket.IO" else "SMS"
@@ -288,8 +285,8 @@ class AlarmService : Service() {
 
         // 3. Send safe message via Socket.IO
         var socketSuccess = false
-        if (socketManager.isConnected) {
-            // FIX 2: Remove the unnecessary withContext block
+        // ✅ FIX: Access StateFlow value with .value
+        if (socketManager.isConnected.value) {
             socketManager.sendSafeAlert(
                 fromUserId = userId,
                 fromUserName = userName,

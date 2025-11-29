@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import androidx.navigation.NavController
 import com.example.compow.ComPowApplication
 import com.example.compow.data.UserEntity
@@ -24,8 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION") // Suppressing for menuAnchor until IDE syncs properly
 @Composable
 fun SignupPage(navController: NavController) {
     val context = LocalContext.current
@@ -226,16 +227,22 @@ fun SignupPage(navController: NavController) {
                 onClick = {
                     scope.launch {
                         isLoading = true
-
+                        var success = false
+                        
                         // Validation
                         when {
-                            fullName.isEmpty() || email.isEmpty() || password.isEmpty() -> {
+                            fullName.isBlank() || email.isBlank() || password.isBlank() || yearOfStudy.isBlank() || courseOfStudy.isBlank() -> {
                                 errorMessage = "Please fill all fields"
                                 showError = true
                             }
 
                             password.length < 6 -> {
                                 errorMessage = "Password must be at least 6 characters"
+                                showError = true
+                            }
+
+                            !email.endsWith("@student.ac.ke") -> { // Example validation
+                                errorMessage = "Please use a valid student email"
                                 showError = true
                             }
 
@@ -246,21 +253,13 @@ fun SignupPage(navController: NavController) {
 
                             else -> {
                                 withContext(Dispatchers.IO) {
-                                    // Check if email exists
                                     if (userDao.isEmailExists(email)) {
-                                        withContext(Dispatchers.Main) {
-                                            errorMessage = "Email already registered"
-                                            showError = true
-                                        }
-                                    }
-                                    // Check if phone exists
-                                    else if (userDao.isPhoneNumberExists(phoneNumber)) {
-                                        withContext(Dispatchers.Main) {
-                                            errorMessage = "Phone number already registered"
-                                            showError = true
-                                        }
+                                        errorMessage = "Email already registered"
+                                        showError = true
+                                    } else if (userDao.isPhoneNumberExists(phoneNumber)) {
+                                        errorMessage = "Phone number already registered"
+                                        showError = true
                                     } else {
-                                        // Create new user
                                         val userId = UUID.randomUUID().toString()
                                         val user = UserEntity(
                                             userId = userId,
@@ -273,30 +272,23 @@ fun SignupPage(navController: NavController) {
 
                                         userDao.insertUser(user)
 
-                                        // Save to preferences
-                                        val prefs = context.getSharedPreferences(
-                                            "compow_prefs",
-                                            Context.MODE_PRIVATE
-                                        )
-                                        prefs.edit().apply {
+                                        // Use commit=true for a synchronous, guaranteed write
+                                        context.getSharedPreferences("compow_prefs", Context.MODE_PRIVATE).edit(commit = true) {
                                             putString("user_id", userId)
                                             putString("user_name", fullName)
-                                            putString("user_email", email)
-                                            putString("user_phone", phoneNumber)
                                             putBoolean("is_logged_in", true)
-                                            apply()
                                         }
-
-                                        withContext(Dispatchers.Main) {
-                                            navController.navigate("home") {
-                                                popUpTo("first") { inclusive = true }
-                                            }
-                                        }
+                                        success = true
                                     }
                                 }
                             }
                         }
 
+                        if (success) {
+                            navController.navigate("home") {
+                                popUpTo("first") { inclusive = true }
+                            }
+                        }
                         isLoading = false
                     }
                 },
@@ -329,7 +321,7 @@ fun SignupPage(navController: NavController) {
         if (showError) {
             AlertDialog(
                 onDismissRequest = onDismiss,
-                title = { Text("Error") },
+                title = { Text("Signup Failed") },
                 text = { Text(errorMessage) },
                 confirmButton = {
                     TextButton(onClick = onDismiss) {

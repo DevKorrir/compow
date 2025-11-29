@@ -47,15 +47,15 @@ fun SettingsPage(navController: NavController) {
     val prefs = context.getSharedPreferences("compow_prefs", Context.MODE_PRIVATE)
     val scope = rememberCoroutineScope()
 
-    // Get database instance
     val database = (context.applicationContext as ComPowApplication).database
     val contactDao = database.contactDao()
     val userDao = database.userDao()
 
-    // Get Socket.IO manager
     val socketManager = remember { SocketIOManager.getInstance() }
 
-    // State variables
+    // ✅ FIX: Collect StateFlow for reactive connection status
+    val isSocketConnected by socketManager.isConnected.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var circleEnabled by remember { mutableStateOf(prefs.getBoolean("circle_enabled", true)) }
     var groupEnabled by remember { mutableStateOf(prefs.getBoolean("group_enabled", true)) }
@@ -67,21 +67,16 @@ fun SettingsPage(navController: NavController) {
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
-    var isSocketConnected by remember { mutableStateOf(socketManager.isConnected) }
 
-    // Contact counts
     var circleCount by remember { mutableIntStateOf(0) }
     var groupCount by remember { mutableIntStateOf(0) }
     var communityCount by remember { mutableIntStateOf(0) }
 
-    // Current category for adding contacts
     var currentCategoryForAdd by remember { mutableStateOf<ContactCategory?>(null) }
 
-    // Dismissal lambdas for dialogs
     val dismissSuccessDialog = { showSuccessDialog = false }
     val dismissErrorDialog = { showErrorDialog = false }
 
-    // Load contact counts
     LaunchedEffect(Unit) {
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -89,7 +84,6 @@ fun SettingsPage(navController: NavController) {
                 groupCount = contactDao.getContactCountByCategory(ContactCategory.GROUP)
                 communityCount = contactDao.getContactCountByCategory(ContactCategory.COMMUNITY)
 
-                // Get user name from database
                 val user = userDao.getCurrentUser()
                 if (user != null) {
                     userName = user.fullName
@@ -97,12 +91,10 @@ fun SettingsPage(navController: NavController) {
             }
         }
 
-        // Connect to Socket.IO
+        // ✅ Connect to Socket.IO (StateFlow handles the status update)
         socketManager.connect()
-        isSocketConnected = socketManager.isConnected
     }
 
-    // Save preferences when they change
     LaunchedEffect(circleEnabled, groupEnabled, communityEnabled, profileInNotification) {
         prefs.edit {
             putBoolean("circle_enabled", circleEnabled)
@@ -112,7 +104,6 @@ fun SettingsPage(navController: NavController) {
         }
     }
 
-    // Contact picker launcher
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { uri ->
@@ -120,7 +111,6 @@ fun SettingsPage(navController: NavController) {
             currentCategoryForAdd?.let { category ->
                 scope.launch {
                     handleContactSelection(context, uri, contactDao, category) {
-                        // Update counts after adding contact
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 when (it) {
@@ -136,7 +126,6 @@ fun SettingsPage(navController: NavController) {
         }
     }
 
-    // Gallery picker for profile picture
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -157,7 +146,6 @@ fun SettingsPage(navController: NavController) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Top Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -165,7 +153,6 @@ fun SettingsPage(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Profile Icon (clickable to change)
                 Box(
                     modifier = Modifier
                         .size(64.dp)
@@ -210,7 +197,6 @@ fun SettingsPage(navController: NavController) {
                     }
                 }
 
-                // Menu Button
                 Box {
                     IconButton(onClick = { showMenu = !showMenu }) {
                         Icon(
@@ -251,12 +237,10 @@ fun SettingsPage(navController: NavController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Background Trigger Setting
             BackgroundTriggerSetting()
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Add Friends or Group Section
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -270,7 +254,6 @@ fun SettingsPage(navController: NavController) {
                     color = Color.Black
                 )
 
-                // Circle Section
                 ContactControlRow(
                     label = "Circle",
                     count = circleCount,
@@ -289,7 +272,6 @@ fun SettingsPage(navController: NavController) {
                     }
                 )
 
-                // Group Section
                 ContactControlRow(
                     label = "Group",
                     count = groupCount,
@@ -308,7 +290,6 @@ fun SettingsPage(navController: NavController) {
                     }
                 )
 
-                // Community Section
                 ContactControlRow(
                     label = "Community",
                     count = communityCount,
@@ -330,7 +311,6 @@ fun SettingsPage(navController: NavController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Profile in Notification Toggle
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -380,7 +360,6 @@ fun SettingsPage(navController: NavController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Setup Emergency Message Section
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -422,7 +401,6 @@ fun SettingsPage(navController: NavController) {
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // User name prefix (auto-added)
                         Text(
                             "Message starts with: \"$userName:\"",
                             fontSize = 14.sp,
@@ -453,7 +431,6 @@ fun SettingsPage(navController: NavController) {
                             maxLines = 6
                         )
 
-                        // Character counter
                         Text(
                             "${messageText.length}/300 characters",
                             fontSize = 12.sp,
@@ -461,7 +438,6 @@ fun SettingsPage(navController: NavController) {
                             modifier = Modifier.align(Alignment.End)
                         )
 
-                        // Preview of full message
                         if (messageText.isNotEmpty()) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -489,7 +465,6 @@ fun SettingsPage(navController: NavController) {
                             }
                         }
 
-                        // Save Button
                         Button(
                             onClick = {
                                 if (messageText.length > 300) {
@@ -503,8 +478,7 @@ fun SettingsPage(navController: NavController) {
                                     putString("default_message", messageText)
                                 }
 
-                                // Test Socket.IO connection
-                                if (socketManager.isConnected) {
+                                if (isSocketConnected) {
                                     showSuccessDialog = true
                                 } else {
                                     errorMessage = "Message saved, but Socket.IO is not connected. Messages will be sent via SMS."
@@ -542,7 +516,6 @@ fun SettingsPage(navController: NavController) {
         }
     }
 
-    // Success Dialog
     if (showSuccessDialog) {
         AlertDialog(
             onDismissRequest = dismissSuccessDialog,
@@ -564,7 +537,6 @@ fun SettingsPage(navController: NavController) {
         )
     }
 
-    // Error Dialog
     if (showErrorDialog) {
         AlertDialog(
             onDismissRequest = dismissErrorDialog,
@@ -593,7 +565,6 @@ fun BackgroundTriggerSetting() {
     var isEnabled by remember { mutableStateOf(AccessibilityHelper.isAccessibilityServiceEnabled(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Update status when screen resumes
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -689,7 +660,6 @@ fun ContactControlRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Add Button
                 IconButton(
                     onClick = onAdd,
                     modifier = Modifier
@@ -704,7 +674,6 @@ fun ContactControlRow(
                     )
                 }
 
-                // Remove Button
                 IconButton(
                     onClick = onRemove,
                     modifier = Modifier
@@ -720,7 +689,6 @@ fun ContactControlRow(
                     )
                 }
 
-                // Enable/Disable Switch
                 Switch(
                     checked = enabled,
                     onCheckedChange = onToggle,
@@ -753,7 +721,6 @@ private suspend fun handleContactSelection(
                 val name = it.getString(nameIndex)
                 val contactId = it.getString(idIndex)
 
-                // Get phone number
                 val phoneCursor = context.contentResolver.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     null,
@@ -767,13 +734,12 @@ private suspend fun handleContactSelection(
                         val phoneIndex = pc.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                         var phoneNumber = pc.getString(phoneIndex)
 
-                        // Format phone number to Kenyan format if needed
                         phoneNumber = formatPhoneNumber(phoneNumber)
 
                         val contact = ContactEntity(
                             name = name,
                             phoneNumber = phoneNumber,
-                            category = category, // Use the provided category
+                            category = category,
                             isEnabled = true
                         )
 
@@ -807,16 +773,11 @@ private suspend fun removeLastContact(
 private fun formatPhoneNumber(phoneNumber: String): String {
     var formatted = phoneNumber.replace("\\s".toRegex(), "")
 
-    // If starts with 0, replace with +254
     if (formatted.startsWith("0")) {
         formatted = "+254${formatted.substring(1)}"
-    }
-    // If starts with 254, add +
-    else if (formatted.startsWith("254")) {
+    } else if (formatted.startsWith("254")) {
         formatted = "+$formatted"
-    }
-    // If doesn't start with +254, assume Kenyan number
-    else if (!formatted.startsWith("+254")) {
+    } else if (!formatted.startsWith("+254")) {
         formatted = "+254$formatted"
     }
 
