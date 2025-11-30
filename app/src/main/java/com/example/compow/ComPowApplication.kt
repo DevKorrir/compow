@@ -2,10 +2,12 @@ package com.example.compow
 
 import android.app.Application
 import android.content.pm.PackageManager
+import com.example.compow.data.AppDatabase
 import com.google.android.libraries.places.api.Places
 import android.util.Log // Add this import
 
 class ComPowApplication : Application() {
+    val database: AppDatabase by lazy { AppDatabase.getDatabase(this) }
 
     override fun onCreate() {
         super.onCreate()

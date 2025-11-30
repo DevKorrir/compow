@@ -10,7 +10,7 @@ class VolumeButtonAccessibilityService : AccessibilityService() {
 
     private var lastVolumeDownTime = 0L
     private var lastVolumeUpTime = 0L
-    private val doublePressThreshold = 500L // 500ms for a double-press
+    private val doublePressThreshold = 300L // 300ms for a more responsive double-press
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
