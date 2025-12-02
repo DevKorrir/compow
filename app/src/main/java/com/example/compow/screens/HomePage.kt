@@ -20,22 +20,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.compow.AlarmService
-import com.example.compow.ComPowApplication
 import com.example.compow.data.AlertLogEntity
 import com.example.compow.data.NearbyPlace
 import com.example.compow.utils.LocationHelper
-import com.example.compow.utils.POICacheManager
-import com.example.compow.utils.PlacesHelper
+import com.example.compow.viewmodels.HomeViewModel
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -49,84 +47,18 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomePage(navController: NavController) {
+fun HomePage(
+    navController: NavController,
+    viewModel: HomeViewModel = viewModel()
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val database = (context.applicationContext as ComPowApplication).database
-    val alertLogDao = database.alertLogDao()
 
-    val poiCacheManager = remember { POICacheManager(context) }
-    val placesHelper = remember { PlacesHelper(context) }
+    // Collect UI state from ViewModel
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showMenu by remember { mutableStateOf(false) }
     var showAlertHistory by remember { mutableStateOf(false) }
-    var alarmActive by remember { mutableStateOf(false) }
-
-    // Settings
-    val prefs = context.getSharedPreferences("compow_prefs", Context.MODE_PRIVATE)
-    val circleEnabled = prefs.getBoolean("circle_enabled", true)
-    val groupEnabled = prefs.getBoolean("group_enabled", true)
-    val communityEnabled = prefs.getBoolean("community_enabled", false)
-
-    // Alert history
-    var recentAlerts by remember { mutableStateOf<List<AlertLogEntity>>(emptyList()) }
-    var activeAlert by remember { mutableStateOf<AlertLogEntity?>(null) }
-    var alertCount by remember { mutableIntStateOf(0) }
-    var activeAlertCount by remember { mutableIntStateOf(0) }
-
-    // Location and nearby places
-    val locationHelper = remember { LocationHelper(context) }
-    var userLocation by remember { mutableStateOf<LatLng?>(null) }
-    var nearbyHospitals by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
-    var nearbyPoliceStations by remember { mutableStateOf<List<NearbyPlace>>(emptyList()) }
-    var isSearching by remember { mutableStateOf(false) }
-    var locationStatus by remember { mutableStateOf("Getting location...") }
-
-    // Load initial data
-    LaunchedEffect(Unit) {
-        scope.launch(Dispatchers.IO) {
-            activeAlert = alertLogDao.getActiveAlert()
-            recentAlerts = alertLogDao.getRecentAlerts(10)
-            alertCount = alertLogDao.getAlertLogCount()
-            activeAlertCount = alertLogDao.getActiveAlertCount()
-
-            val location = locationHelper.getLocationWithFallback()
-            if (location != null) {
-                userLocation = LatLng(location.latitude, location.longitude)
-                withContext(Dispatchers.Main) {
-                    locationStatus = if (locationHelper.isLocationAccurate(location)) {
-                        "Location accurate (${location.accuracy.toInt()}m)"
-                    } else {
-                        "Low accuracy (${location.accuracy.toInt()}m)"
-                    }
-                }
-
-                // Cache-first strategy for nearby places
-                withContext(Dispatchers.Main) { isSearching = true }
-                val cachedResults = poiCacheManager.getCachedResults(location.latitude, location.longitude)
-                if (cachedResults != null) {
-                    nearbyHospitals = cachedResults.hospitals
-                    nearbyPoliceStations = cachedResults.policeStations
-                } else {
-                    userLocation?.let {
-                        val (hospitals, police) = placesHelper.findNearbyPlaces()
-                        nearbyHospitals = hospitals
-                        nearbyPoliceStations = police
-                        poiCacheManager.cacheResults(location.latitude, location.longitude, hospitals, police)
-                    }
-                }
-                withContext(Dispatchers.Main) { isSearching = false }
-            } else {
-                val (defaultLat, defaultLng) = LocationHelper.getDefaultLocation()
-                userLocation = LatLng(defaultLat, defaultLng)
-                withContext(Dispatchers.Main) {
-                    locationStatus = "Using default location"
-                }
-            }
-        }
-    }
-
-    alarmActive = activeAlert?.isResolved == false
 
     // Permission launcher
     val callPermissionLauncher = rememberLauncherForActivityResult(
@@ -158,18 +90,18 @@ fun HomePage(navController: NavController) {
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FlickeringContactIcon(Icons.Default.Person, "Circle", circleEnabled)
-                    FlickeringContactIcon(Icons.Default.Group, "Group", groupEnabled)
-                    FlickeringContactIcon(Icons.Default.Groups, "Community", communityEnabled)
+                    FlickeringContactIcon(Icons.Default.Person, "Circle", uiState.circleEnabled)
+                    FlickeringContactIcon(Icons.Default.Group, "Group", uiState.groupEnabled)
+                    FlickeringContactIcon(Icons.Default.Groups, "Community", uiState.communityEnabled)
                 }
 
                 Box {
                     IconButton(onClick = { showMenu = !showMenu }) {
                         Badge(
-                            containerColor = if (activeAlertCount > 0) Color.Red else Color.Transparent
+                            containerColor = if (uiState.activeAlertCount > 0) Color.Red else Color.Transparent
                         ) {
-                            if (activeAlertCount > 0) {
-                                Text("$activeAlertCount", color = Color.White, fontSize = 10.sp)
+                            if (uiState.activeAlertCount > 0) {
+                                Text("${uiState.activeAlertCount}", color = Color.White, fontSize = 10.sp)
                             }
                         }
                         Icon(
@@ -207,7 +139,7 @@ fun HomePage(navController: NavController) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Alert History")
-                                    Badge { Text("$alertCount") }
+                                    Badge { Text("${uiState.alertCount}") }
                                 }
                             },
                             onClick = {
@@ -223,7 +155,7 @@ fun HomePage(navController: NavController) {
             Spacer(modifier = Modifier.height(8.dp))
 
             // Active Alert Banner
-            if (alarmActive && activeAlert != null) {
+            if (uiState.alarmActive && uiState.activeAlert != null) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -252,7 +184,7 @@ fun HomePage(navController: NavController) {
                                 fontSize = 14.sp
                             )
                             Text(
-                                "${activeAlert!!.contactsNotified} contacts notified",
+                                "${uiState.activeAlert!!.contactsNotified} contacts notified",
                                 fontSize = 12.sp,
                                 color = Color.Gray
                             )
@@ -266,14 +198,14 @@ fun HomePage(navController: NavController) {
             MapSection(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (alarmActive) 320.dp else 380.dp)
+                    .height(if (uiState.alarmActive) 320.dp else 380.dp)
                     .padding(horizontal = 16.dp),
-                userLocation = userLocation,
-                hospitals = nearbyHospitals,
-                policeStations = nearbyPoliceStations,
-                isSearching = isSearching,
-                locationStatus = locationStatus,
-                locationHelper = locationHelper
+                userLocation = uiState.userLocation,
+                hospitals = uiState.nearbyHospitals,
+                policeStations = uiState.nearbyPoliceStations,
+                isSearching = uiState.isSearching,
+                locationStatus = uiState.locationStatus,
+                locationHelper = viewModel.getLocationHelper()
             )
 
             Spacer(modifier = Modifier.weight(1f))
@@ -288,27 +220,21 @@ fun HomePage(navController: NavController) {
             ) {
                 Button(
                     onClick = {
-                        alarmActive = false
+                        viewModel.setAlarmActive(false)
                         AlarmService.stopAlarm(context)
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                activeAlert = alertLogDao.getActiveAlert()
-                                recentAlerts = alertLogDao.getRecentAlerts(10)
-                                activeAlertCount = alertLogDao.getActiveAlertCount()
-                            }
-                        }
+                        viewModel.refreshAlerts()
                     },
                     modifier = Modifier
                         .weight(1f)
                         .height(65.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (alarmActive) Color.Red else Color(0xFF2962FF)
+                        containerColor = if (uiState.alarmActive) Color.Red else Color(0xFF2962FF)
                     ),
                     shape = RoundedCornerShape(16.dp),
                     elevation = ButtonDefaults.buttonElevation(8.dp)
                 ) {
                     Text(
-                        if (alarmActive) "STOP ALARM" else "Stop Alarm",
+                        if (uiState.alarmActive) "STOP ALARM" else "Stop Alarm",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -358,7 +284,7 @@ fun HomePage(navController: NavController) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Alert History")
-                    Badge { Text("$alertCount") }
+                    Badge { Text("${uiState.alertCount}") }
                 }
             },
             text = {
@@ -368,11 +294,11 @@ fun HomePage(navController: NavController) {
                         .height(400.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(recentAlerts) { alert ->
+                    items(uiState.recentAlerts) { alert ->
                         AlertHistoryItem(alert)
                     }
 
-                    if (recentAlerts.isEmpty()) {
+                    if (uiState.recentAlerts.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -504,122 +430,124 @@ fun MapSection(
         }
     }
 
-    Box(
-        modifier = modifier
-            .shadow(8.dp, RoundedCornerShape(16.dp)) // Apply shadow for elevation
-            .clip(RoundedCornerShape(16.dp)) // Clip the map to the rounded shape
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(8.dp)
     ) {
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = false),
-            uiSettings = MapUiSettings(
-                zoomControlsEnabled = true,
-                myLocationButtonEnabled = false
-            )
-        ) {
-            if (userLocation != null) {
-                Marker(
-                    state = rememberMarkerState(position = userLocation),
-                    title = "Your Location",
-                    snippet = locationHelper.formatLocation(Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude}),
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+        Box(modifier = Modifier.fillMaxSize()) {
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(isMyLocationEnabled = false),
+                uiSettings = MapUiSettings(
+                    zoomControlsEnabled = true,
+                    myLocationButtonEnabled = false
                 )
-            }
-
-            hospitals.forEach { hospital ->
-                Marker(
-                    state = rememberMarkerState(position = LatLng(hospital.latitude, hospital.longitude)),
-                    title = hospital.name,
-                    snippet = hospital.address,
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
-                )
-            }
-
-            policeStations.forEach { station ->
-                Marker(
-                    state = rememberMarkerState(position = LatLng(station.latitude, station.longitude)),
-                    title = station.name,
-                    snippet = station.address,
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
-                )
-            }
-        }
-
-        if (isSearching) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
-                    .padding(16.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                    Text("Finding nearby help...", fontSize = 12.sp)
+                if (userLocation != null) {
+                    Marker(
+                        state = rememberMarkerState(position = userLocation),
+                        title = "Your Location",
+                        snippet = locationHelper.formatLocation(Location("").apply { latitude = userLocation.latitude; longitude = userLocation.longitude}),
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                    )
+                }
+
+                hospitals.forEach { hospital ->
+                    Marker(
+                        state = rememberMarkerState(position = LatLng(hospital.latitude, hospital.longitude)),
+                        title = hospital.name,
+                        snippet = "${hospital.address}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                    )
+                }
+
+                policeStations.forEach { station ->
+                    Marker(
+                        state = rememberMarkerState(position = LatLng(station.latitude, station.longitude)),
+                        title = station.name,
+                        snippet = "${station.address}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
+                    )
                 }
             }
-        }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(12.dp)
-        ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White.copy(alpha = 0.95f)
-                ),
-                elevation = CardDefaults.cardElevation(4.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+            if (isSearching) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            Icons.Default.LocationOn,
-                            contentDescription = null,
-                            tint = Color(0xFF2962FF),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Emergency Facilities",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Text("Finding nearby help...", fontSize = 12.sp)
                     }
+                }
+            }
 
-                    Text(locationStatus, fontSize = 10.sp, color = Color.Gray)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.95f)
+                    ),
+                    elevation = CardDefaults.cardElevation(4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = Color(0xFF2962FF),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Emergency Facilities",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
-                    if (!isSearching) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(Color(0xFF0099FF), CircleShape)
-                                )
-                                Text("🏥 ${hospitals.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(Color(0xFF00FF00), CircleShape)
-                                )
-                                Text("🚔 ${policeStations.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Text(locationStatus, fontSize = 10.sp, color = Color.Gray)
+
+                        if (!isSearching) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color(0xFF0099FF), CircleShape)
+                                    )
+                                    Text("🏥 ${hospitals.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color(0xFF00FF00), CircleShape)
+                                    )
+                                    Text("🚔 ${policeStations.size}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
                             }
                         }
                     }
