@@ -21,21 +21,36 @@ class SocketIOManager private constructor() {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    // StateFlow for received alerts
+    private val _emergencyAlertReceived = MutableStateFlow<EmergencyAlertData?>(null)
+    val emergencyAlertReceived: StateFlow<EmergencyAlertData?> = _emergencyAlertReceived.asStateFlow()
+
+    private val _safeAlertReceived = MutableStateFlow<SafeAlertData?>(null)
+    val safeAlertReceived: StateFlow<SafeAlertData?> = _safeAlertReceived.asStateFlow()
+
+    private val _contactLiveLocation = MutableStateFlow<ContactLocationData?>(null)
+    val contactLiveLocation: StateFlow<ContactLocationData?> = _contactLiveLocation.asStateFlow()
+
     companion object {
         @Volatile
         private var INSTANCE: SocketIOManager? = null
 
-        //server URL
+        // Server URL - UPDATE THIS!
         private const val SERVER_URL = "http://10.10.114.154:3000"
 
+        // Socket Events
         const val EVENT_CONNECT = Socket.EVENT_CONNECT
         const val EVENT_DISCONNECT = Socket.EVENT_DISCONNECT
         const val EVENT_CONNECT_ERROR = Socket.EVENT_CONNECT_ERROR
+        const val EVENT_JOIN_ROOM = "join_room"
+        const val EVENT_LEAVE_ROOM = "leave_room"
         const val EVENT_EMERGENCY_ALERT = "emergency_alert"
         const val EVENT_SAFE_ALERT = "safe_alert"
-        const val EVENT_JOIN_ROOM = "join_room" // Corrected this line
-        const val EVENT_USER_ONLINE = "user_online"
-        const val EVENT_USER_OFFLINE = "user_offline"
+        const val EVENT_LIVE_LOCATION_UPDATE = "live_location_update"
+        const val EVENT_EMERGENCY_ALERT_RECEIVED = "emergency_alert_received"
+        const val EVENT_SAFE_ALERT_RECEIVED = "safe_alert_received"
+        const val EVENT_CONTACT_LIVE_LOCATION = "contact_live_location"
+        const val EVENT_USER_STATUS_CHANGED = "user_status_changed"
 
         fun getInstance(): SocketIOManager {
             return INSTANCE ?: synchronized(this) {
@@ -46,9 +61,35 @@ class SocketIOManager private constructor() {
         }
     }
 
+    // Data classes
+    data class EmergencyAlertData(
+        val fromUserId: String,
+        val fromUserName: String,
+        val message: String,
+        val latitude: Double,
+        val longitude: Double,
+        val timestamp: Long
+    )
+
+    data class SafeAlertData(
+        val fromUserId: String,
+        val fromUserName: String,
+        val message: String,
+        val timestamp: Long
+    )
+
+    data class ContactLocationData(
+        val fromUserId: String,
+        val fromUserName: String?,
+        val latitude: Double,
+        val longitude: Double,
+        val timestamp: Long
+    )
+
+    // Event Listeners
     private val onConnect = Emitter.Listener {
         _isConnected.value = true
-        Log.d("SocketIOManager", "✅ Socket connected successfully")
+        Log.d("SocketIOManager", "✅ Socket connected")
     }
 
     private val onDisconnect = Emitter.Listener {
@@ -62,20 +103,91 @@ class SocketIOManager private constructor() {
         Log.e("SocketIOManager", "❌ Connection error: $error")
     }
 
-    private val onEmergencyAlert = Emitter.Listener { args ->
+    private val onEmergencyAlertReceived = Emitter.Listener { args ->
         if (args.isNotEmpty()) {
-            val data = args[0] as? JSONObject
-            Log.d("SocketIOManager", "🚨 Emergency alert received: $data")
-            CoroutineScope(Dispatchers.Main).launch {
-                // Handle emergency alert
+            try {
+                val data = args[0] as? JSONObject
+                if (data != null) {
+                    val alertData = EmergencyAlertData(
+                        fromUserId = data.optString("fromUserId", ""),
+                        fromUserName = data.optString("fromUserName", "Unknown"),
+                        message = data.optString("message", ""),
+                        latitude = data.optDouble("latitude", 0.0),
+                        longitude = data.optDouble("longitude", 0.0),
+                        timestamp = data.optLong("timestamp", System.currentTimeMillis())
+                    )
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        _emergencyAlertReceived.value = alertData
+                        Log.d("SocketIOManager", "🚨 Emergency alert from: ${alertData.fromUserName}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("SocketIOManager", "❌ Error parsing alert: ${e.message}")
             }
         }
     }
 
-    private val onSafeAlert = Emitter.Listener { args ->
+    private val onSafeAlertReceived = Emitter.Listener { args ->
         if (args.isNotEmpty()) {
-            val data = args[0] as? JSONObject
-            Log.d("SocketIOManager", "✅ Safe alert received: $data")
+            try {
+                val data = args[0] as? JSONObject
+                if (data != null) {
+                    val alertData = SafeAlertData(
+                        fromUserId = data.optString("fromUserId", ""),
+                        fromUserName = data.optString("fromUserName", "Unknown"),
+                        message = data.optString("message", ""),
+                        timestamp = data.optLong("timestamp", System.currentTimeMillis())
+                    )
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        _safeAlertReceived.value = alertData
+                        Log.d("SocketIOManager", "✅ Safe alert from: ${alertData.fromUserName}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("SocketIOManager", "❌ Error parsing safe alert: ${e.message}")
+            }
+        }
+    }
+
+    private val onContactLiveLocation = Emitter.Listener { args ->
+        if (args.isNotEmpty()) {
+            try {
+                val data = args[0] as? JSONObject
+                if (data != null) {
+                    val locationData = ContactLocationData(
+                        fromUserId = data.optString("fromUserId", ""),
+                        fromUserName = data.optString("fromUserName"),
+                        latitude = data.optDouble("latitude", 0.0),
+                        longitude = data.optDouble("longitude", 0.0),
+                        timestamp = data.optLong("timestamp", System.currentTimeMillis())
+                    )
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        _contactLiveLocation.value = locationData
+                        Log.d("SocketIOManager", "🌍 Location from: ${locationData.fromUserId}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("SocketIOManager", "❌ Error parsing location: ${e.message}")
+            }
+        }
+    }
+
+    private val onUserStatusChanged = Emitter.Listener { args ->
+        if (args.isNotEmpty()) {
+            try {
+                val data = args[0] as? JSONObject
+                if (data != null) {
+                    val userId = data.optString("userId", "")
+                    val userName = data.optString("userName", "Unknown")
+                    val status = data.optString("status", "offline")
+                    Log.d("SocketIOManager", "👤 $userName ($userId) is now $status")
+                }
+            } catch (e: Exception) {
+                Log.e("SocketIOManager", "❌ Error parsing status: ${e.message}")
+            }
         }
     }
 
@@ -87,14 +199,15 @@ class SocketIOManager private constructor() {
                 reconnectionDelay = 1000
                 reconnectionDelayMax = 5000
                 timeout = 20000
+                transports = arrayOf("websocket")
             }
 
             socket = IO.socket(SERVER_URL, opts)
             setupSocketListeners()
-            Log.d("SocketIOManager", "📡 SocketIO initialized with URL: $SERVER_URL")
+            Log.d("SocketIOManager", "📡 SocketIO initialized: $SERVER_URL")
 
         } catch (e: URISyntaxException) {
-            Log.e("SocketIOManager", "❌ Socket initialization error: ${e.message}")
+            Log.e("SocketIOManager", "❌ Init error: ${e.message}")
         }
     }
 
@@ -103,35 +216,48 @@ class SocketIOManager private constructor() {
             on(EVENT_CONNECT, onConnect)
             on(EVENT_DISCONNECT, onDisconnect)
             on(EVENT_CONNECT_ERROR, onConnectError)
-            on(EVENT_EMERGENCY_ALERT, onEmergencyAlert)
-            on(EVENT_SAFE_ALERT, onSafeAlert)
+            on(EVENT_EMERGENCY_ALERT_RECEIVED, onEmergencyAlertReceived)
+            on(EVENT_SAFE_ALERT_RECEIVED, onSafeAlertReceived)
+            on(EVENT_CONTACT_LIVE_LOCATION, onContactLiveLocation)
+            on(EVENT_USER_STATUS_CHANGED, onUserStatusChanged)
         }
     }
 
     fun connect() {
         if (!_isConnected.value) {
             socket?.connect()
-            Log.d("SocketIOManager", "🔄 Connecting to server: $SERVER_URL")
+            Log.d("SocketIOManager", "🔄 Connecting to: $SERVER_URL")
         } else {
             Log.d("SocketIOManager", "ℹ️ Already connected")
         }
     }
 
     fun disconnect() {
-        Log.d("SocketIOManager", "🔄 Disconnecting from server...")
+        Log.d("SocketIOManager", "🔄 Disconnecting...")
         socket?.disconnect()
         _isConnected.value = false
     }
 
-    fun joinUserRoom(userId: String) {
+    fun joinUserRoom(userId: String, userName: String) {
+        if (_isConnected.value) {
+            val data = JSONObject().apply {
+                put("userId", userId)
+                put("userName", userName)
+            }
+            socket?.emit(EVENT_JOIN_ROOM, data)
+            Log.d("SocketIOManager", "🚪 Joined room: $userId as $userName")
+        } else {
+            Log.w("SocketIOManager", "⚠️ Cannot join - not connected")
+        }
+    }
+
+    fun leaveUserRoom(userId: String) {
         if (_isConnected.value) {
             val data = JSONObject().apply {
                 put("userId", userId)
             }
-            socket?.emit(EVENT_JOIN_ROOM, data)
-            Log.d("SocketIOManager", "🚪 Joined room: $userId")
-        } else {
-            Log.w("SocketIOManager", "⚠️ Cannot join room - not connected")
+            socket?.emit(EVENT_LEAVE_ROOM, data)
+            Log.d("SocketIOManager", "🚪 Left room: $userId")
         }
     }
 
@@ -146,23 +272,19 @@ class SocketIOManager private constructor() {
     ) {
         if (!_isConnected.value) {
             CoroutineScope(Dispatchers.Main).launch {
-                callback(false, "Not connected to server")
+                callback(false, "Not connected")
             }
             return
         }
 
         try {
-            // Create JSONArray for contactIds
-            val contactsArray = JSONArray()
-            contactIds.forEach { contactsArray.put(it) }
-
             val data = JSONObject().apply {
                 put("fromUserId", fromUserId)
                 put("fromUserName", fromUserName)
                 put("message", message)
                 put("latitude", latitude ?: 0.0)
                 put("longitude", longitude ?: 0.0)
-                put("contactIds", contactsArray.toString()) // Convert to string for server
+                put("contactIds", JSONArray(contactIds))
                 put("timestamp", System.currentTimeMillis())
             }
 
@@ -173,20 +295,51 @@ class SocketIOManager private constructor() {
                         val success = response?.optBoolean("success", false) ?: false
                         val responseMsg = response?.optString("message")
                         callback(success, responseMsg)
-                        Log.d("SocketIOManager", "📨 Server response: $responseMsg")
+                        Log.d("SocketIOManager", "📨 Response: $responseMsg")
                     } else {
-                        callback(false, "No response from server")
+                        callback(false, "No response")
                     }
                 }
             })
 
-            Log.d("SocketIOManager", "🚨 Emergency alert sent to ${contactIds.size} contacts")
+            Log.d("SocketIOManager", "🚨 Alert sent to ${contactIds.size} contacts")
 
         } catch (e: Exception) {
-            Log.e("SocketIOManager", "❌ Error sending emergency alert: ${e.message}")
+            Log.e("SocketIOManager", "❌ Error: ${e.message}")
             CoroutineScope(Dispatchers.Main).launch {
                 callback(false, e.message)
             }
+        }
+    }
+
+    fun sendLiveLocationUpdate(
+        fromUserId: String,
+        fromUserName: String?,
+        latitude: Double,
+        longitude: Double,
+        contactIds: List<String>
+    ) {
+        if (!_isConnected.value) {
+            Log.w("SocketIOManager", "⚠️ Cannot send location - not connected")
+            return
+        }
+
+        try {
+            val data = JSONObject().apply {
+                put("fromUserId", fromUserId)
+                if (fromUserName != null) {
+                    put("fromUserName", fromUserName)
+                }
+                put("latitude", latitude)
+                put("longitude", longitude)
+                put("contactIds", JSONArray(contactIds))
+                put("timestamp", System.currentTimeMillis())
+            }
+
+            socket?.emit(EVENT_LIVE_LOCATION_UPDATE, data)
+
+        } catch (e: Exception) {
+            Log.e("SocketIOManager", "❌ Location error: ${e.message}")
         }
     }
 
@@ -199,7 +352,7 @@ class SocketIOManager private constructor() {
     ) {
         if (!_isConnected.value) {
             CoroutineScope(Dispatchers.Main).launch {
-                callback(false, "Not connected to server")
+                callback(false, "Not connected")
             }
             return
         }
@@ -211,7 +364,6 @@ class SocketIOManager private constructor() {
                 put("message", message)
                 put("contactIds", JSONArray(contactIds))
                 put("timestamp", System.currentTimeMillis())
-                put("type", "safe")
             }
 
             socket?.emit(EVENT_SAFE_ALERT, data, io.socket.client.Ack { args ->
@@ -219,44 +371,33 @@ class SocketIOManager private constructor() {
                     if (args.isNotEmpty()) {
                         val response = args[0] as? JSONObject
                         val success = response?.optBoolean("success", false) ?: false
-                        val error = response?.optString("error")
-                        callback(success, error)
+                        val responseMsg = response?.optString("message")
+                        callback(success, responseMsg)
                     } else {
-                        callback(false, "No response from server")
+                        callback(false, "No response")
                     }
                 }
             })
 
-            Log.d("SocketIOManager", "✅ Safe alert sent to ${contactIds.size} contacts")
+            Log.d("SocketIOManager", "✅ Safe alert sent to ${contactIds.size}")
 
         } catch (e: Exception) {
-            Log.e("SocketIOManager", "❌ Error sending safe alert: ${e.message}")
+            Log.e("SocketIOManager", "❌ Error: ${e.message}")
             CoroutineScope(Dispatchers.Main).launch {
                 callback(false, e.message)
             }
         }
     }
 
-    fun setUserOnline(userId: String, userName: String) {
-        if (_isConnected.value) {
-            val data = JSONObject().apply {
-                put("userId", userId)
-                put("userName", userName)
-            }
-            socket?.emit(EVENT_USER_ONLINE, data)
-            Log.d("SocketIOManager", "🟢 User $userName is now online")
-        } else {
-            Log.w("SocketIOManager", "⚠️ Cannot set user online - not connected")
-        }
+    fun clearEmergencyAlert() {
+        _emergencyAlertReceived.value = null
     }
 
-    fun setUserOffline(userId: String) {
-        if (_isConnected.value) {
-            val data = JSONObject().apply {
-                put("userId", userId)
-            }
-            socket?.emit(EVENT_USER_OFFLINE, data)
-            Log.d("SocketIOManager", "🔴 User $userId is now offline")
-        }
+    fun clearSafeAlert() {
+        _safeAlertReceived.value = null
+    }
+
+    fun clearContactLocation() {
+        _contactLiveLocation.value = null
     }
 }

@@ -141,10 +141,10 @@ fun LoginPage(navController: NavController) {
 
                                             // Wait for connection then set user online
                                             scope.launch {
+                                                // 1. Collect the connection status flow
                                                 socketManager.isConnected.collect { connected ->
                                                     if (connected) {
-                                                        socketManager.joinUserRoom(user.userId)
-                                                        socketManager.setUserOnline(user.userId, user.fullName)
+                                                        socketManager.joinUserRoom(user.userId, user.fullName)
                                                     }
                                                 }
                                             }

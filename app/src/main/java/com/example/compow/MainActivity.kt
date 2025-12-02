@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,20 +14,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.compow.network.SocketIOManager
 import com.example.compow.screens.*
 import com.example.compow.ui.theme.ComPowTheme
 import com.example.compow.utils.PermissionsManager
-import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var permissionsManager: PermissionsManager
-    private lateinit var socketManager: SocketIOManager
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -34,7 +32,7 @@ class MainActivity : ComponentActivity() {
         val allGranted = permissions.values.all { it }
         if (allGranted) {
             Toast.makeText(this, "✅ All permissions granted", Toast.LENGTH_SHORT).show()
-            initializeApp()
+            startSocketServiceIfLoggedIn()
         } else {
             Toast.makeText(
                 this,
@@ -48,10 +46,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         permissionsManager = PermissionsManager(this)
-        socketManager = SocketIOManager.getInstance()
 
+        // Check permissions first
         if (permissionsManager.hasAllPermissions()) {
-            initializeApp()
+            startSocketServiceIfLoggedIn()
         } else {
             requestRequiredPermissions()
         }
@@ -68,18 +66,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initializeApp() {
-        lifecycleScope.launch {
-            socketManager.connect()
-
+    /**
+     * Start background socket service if user is logged in
+     * This keeps the connection alive even when app is in background
+     */
+    private fun startSocketServiceIfLoggedIn() {
+        try {
             val prefs = getSharedPreferences("compow_prefs", MODE_PRIVATE)
             val userId = prefs.getString("user_id", null)
             val userName = prefs.getString("user_name", null)
 
             if (userId != null && userName != null) {
-                socketManager.joinUserRoom(userId)
-                socketManager.setUserOnline(userId, userName)
+                Log.d("MainActivity", "🚀 Starting background socket service")
+                Log.d("MainActivity", "👤 User: $userName ($userId)")
+
+                // Start foreground service for persistent connection
+                SocketForegroundService.startConnection(this, userId, userName)
+            } else {
+                Log.w("MainActivity", "⚠️ No user logged in, skipping socket service")
             }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Error starting socket service: ${e.message}")
         }
     }
 
@@ -103,43 +110,31 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
 
-        lifecycleScope.launch {
-            if (!socketManager.isConnected.value) {
-                socketManager.connect()
-            }
-
-            val prefs = getSharedPreferences("compow_prefs", MODE_PRIVATE)
-            val userId = prefs.getString("user_id", null)
-            val userName = prefs.getString("user_name", null)
-
-            if (userId != null && userName != null) {
-                socketManager.setUserOnline(userId, userName)
-            }
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-
+        // Service handles connection, but restart if needed
         val prefs = getSharedPreferences("compow_prefs", MODE_PRIVATE)
         val userId = prefs.getString("user_id", null)
 
         if (userId != null) {
-            socketManager.setUserOffline(userId)
+            // Check if service is running, restart if needed
+            startSocketServiceIfLoggedIn()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
 
+        // Only disconnect if user explicitly logs out
+        // Otherwise, keep service running in background
         val prefs = getSharedPreferences("compow_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", null)
+        val shouldDisconnect = prefs.getBoolean("user_logged_out", false)
 
-        if (userId != null) {
-            socketManager.setUserOffline(userId)
+        if (shouldDisconnect) {
+            Log.d("MainActivity", "🔴 User logged out, stopping socket service")
+            SocketForegroundService.stopConnection(this)
+            prefs.edit { putBoolean("user_logged_out", false) }
+        } else {
+            Log.d("MainActivity", "✅ Keeping socket service alive in background")
         }
-
-        socketManager.disconnect()
     }
 }
 
