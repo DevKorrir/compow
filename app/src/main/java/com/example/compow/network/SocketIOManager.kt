@@ -26,7 +26,7 @@ class SocketIOManager private constructor() {
         private var INSTANCE: SocketIOManager? = null
 
         //server URL
-        private const val SERVER_URL = "http://10.10.44.98:3000"
+        private const val SERVER_URL = "http://10.10.114.154:3000"
 
         const val EVENT_CONNECT = Socket.EVENT_CONNECT
         const val EVENT_DISCONNECT = Socket.EVENT_DISCONNECT
